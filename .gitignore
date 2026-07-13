@@ -1,0 +1,11 @@
+# Build artifacts
+clippy
+/clippy-*
+dist/
+
+# Go
+*.test
+*.out
+
+# Local runtime/config
+*.log
