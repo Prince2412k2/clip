@@ -1,3 +1,487 @@
 <!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>clippy</title>
-<p>clippy webapp placeholder — replaced by agent E.</p>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f4f6;
+    --fg: #1a1a1e;
+    --card: #ffffff;
+    --border: #d8d8de;
+    --muted: #6b6b73;
+    --accent: #3a6df0;
+    --accent-fg: #ffffff;
+    --danger: #d33c3c;
+    --success: #2a9d55;
+    --input-bg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121214;
+      --fg: #ececee;
+      --card: #1c1c1f;
+      --border: #333338;
+      --muted: #9a9aa2;
+      --accent: #6d93ff;
+      --accent-fg: #0c0c0d;
+      --danger: #ff6b6b;
+      --success: #59d98e;
+      --input-bg: #232326;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 16px;
+    padding-bottom: 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  h1 {
+    font-size: 1.3rem;
+    margin: 4px 0 0 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  input[type="text"],
+  input[type="password"],
+  select,
+  textarea {
+    width: 100%;
+    font-size: 1rem;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--fg);
+    font-family: inherit;
+  }
+  textarea {
+    resize: vertical;
+    min-height: 90px;
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+  }
+  .row > select { flex: 1; min-width: 0; }
+  button {
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 12px 18px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--input-bg);
+    color: var(--fg);
+    cursor: pointer;
+    min-height: 44px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:active { transform: scale(0.98); }
+  button.primary {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-color: var(--accent);
+  }
+  button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none;
+  }
+  button.icon-btn {
+    flex: 0 0 auto;
+    padding: 12px 14px;
+  }
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 22px 14px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .dropzone.drag {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+  .dropzone strong { color: var(--fg); }
+  .file-info {
+    display: none;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  .file-info.show { display: flex; }
+  .file-info .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .file-info .size {
+    color: var(--muted);
+    flex: 0 0 auto;
+  }
+  .file-info .clear {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 1.2rem;
+    padding: 0 4px;
+    min-height: auto;
+  }
+  #status {
+    font-size: 0.9rem;
+    padding: 10px 14px;
+    border-radius: 10px;
+    display: none;
+    word-break: break-word;
+  }
+  #status.show { display: block; }
+  #status.ok {
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    color: var(--success);
+    border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
+  }
+  #status.err {
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    color: var(--danger);
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  }
+  .peer-offline { opacity: 0.55; }
+  .hint {
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  input[type="file"] { display: none; }
+</style>
+</head>
+<body>
+
+<h1>📎 clippy</h1>
+
+<div class="card">
+  <label for="token">Token</label>
+  <input id="token" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="shared secret">
+</div>
+
+<div class="card">
+  <label for="target">Target</label>
+  <div class="row">
+    <select id="target"></select>
+    <button id="refresh" class="icon-btn" title="Refresh peers" type="button">&#x21bb;</button>
+  </div>
+</div>
+
+<div class="card">
+  <label for="text">Text</label>
+  <textarea id="text" placeholder="Type something to send…"></textarea>
+  <button id="sendText" class="primary" type="button">Send text</button>
+</div>
+
+<div class="card">
+  <label>File / image</label>
+  <div id="dropzone" class="dropzone">
+    <div><strong>Tap to choose</strong> or drag &amp; drop a file here</div>
+    <div class="hint">Max 20 MB</div>
+  </div>
+  <input id="fileInput" type="file" accept="*/*">
+  <div id="fileInfo" class="file-info">
+    <span class="name" id="fileName"></span>
+    <span class="size" id="fileSize"></span>
+    <button class="clear" id="fileClear" type="button" title="Remove">&times;</button>
+  </div>
+  <button id="sendFile" class="primary" type="button" disabled>Send file</button>
+</div>
+
+<div id="status"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var MAX_BYTES = 20 * 1024 * 1024; // 20 MiB
+
+  var tokenEl = document.getElementById("token");
+  var targetEl = document.getElementById("target");
+  var refreshBtn = document.getElementById("refresh");
+  var textEl = document.getElementById("text");
+  var sendTextBtn = document.getElementById("sendText");
+  var dropzone = document.getElementById("dropzone");
+  var fileInput = document.getElementById("fileInput");
+  var fileInfo = document.getElementById("fileInfo");
+  var fileNameEl = document.getElementById("fileName");
+  var fileSizeEl = document.getElementById("fileSize");
+  var fileClearBtn = document.getElementById("fileClear");
+  var sendFileBtn = document.getElementById("sendFile");
+  var statusEl = document.getElementById("status");
+
+  var selectedFile = null;
+  var busy = false;
+
+  // ---- persistence ----
+  tokenEl.value = localStorage.getItem("clippy.token") || "";
+  tokenEl.addEventListener("input", function () {
+    localStorage.setItem("clippy.token", tokenEl.value);
+  });
+
+  function lastTarget() {
+    return localStorage.getItem("clippy.target") || "";
+  }
+  targetEl.addEventListener("change", function () {
+    localStorage.setItem("clippy.target", targetEl.value);
+  });
+
+  // ---- status line ----
+  var statusTimer = null;
+  function showStatus(msg, kind) {
+    statusEl.textContent = msg;
+    statusEl.className = "show " + (kind === "ok" ? "ok" : "err");
+    if (statusTimer) clearTimeout(statusTimer);
+    if (kind === "ok") {
+      statusTimer = setTimeout(function () {
+        statusEl.className = "";
+      }, 5000);
+    }
+  }
+
+  function authHeader() {
+    return "Bearer " + (tokenEl.value || "");
+  }
+
+  function fmtSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  // ---- peers ----
+  function loadPeers() {
+    if (!tokenEl.value) {
+      showStatus("Enter your token first.", "err");
+      return;
+    }
+    refreshBtn.disabled = true;
+    fetch("/v1/peers", {
+      headers: { "Authorization": authHeader() }
+    }).then(function (res) {
+      if (res.status === 401) {
+        throw new Error("UNAUTHORIZED");
+      }
+      if (!res.ok) {
+        throw new Error("Server error (" + res.status + ")");
+      }
+      return res.json();
+    }).then(function (peers) {
+      var prev = targetEl.value || lastTarget();
+      targetEl.innerHTML = "";
+      if (!peers || peers.length === 0) {
+        var opt = document.createElement("option");
+        opt.textContent = "No peers found";
+        opt.disabled = true;
+        targetEl.appendChild(opt);
+        return;
+      }
+      peers.forEach(function (p) {
+        var opt = document.createElement("option");
+        opt.value = p.name;
+        opt.textContent = p.name + (p.online ? "" : " (offline)");
+        if (!p.online) opt.className = "peer-offline";
+        targetEl.appendChild(opt);
+      });
+      if (prev) {
+        for (var i = 0; i < targetEl.options.length; i++) {
+          if (targetEl.options[i].value === prev) {
+            targetEl.selectedIndex = i;
+            break;
+          }
+        }
+      }
+    }).catch(function (err) {
+      if (err.message === "UNAUTHORIZED") {
+        showStatus("Check your token — unauthorized.", "err");
+      } else {
+        showStatus("Could not load peers: " + err.message, "err");
+      }
+    }).finally(function () {
+      refreshBtn.disabled = false;
+    });
+  }
+
+  refreshBtn.addEventListener("click", loadPeers);
+
+  // ---- sending ----
+  function setBusy(v) {
+    busy = v;
+    sendTextBtn.disabled = v || !textEl.value.trim();
+    sendFileBtn.disabled = v || !selectedFile;
+  }
+
+  function doSend(formData, label) {
+    if (!tokenEl.value) {
+      showStatus("Enter your token first.", "err");
+      return;
+    }
+    var target = targetEl.value;
+    if (!target) {
+      showStatus("Choose a target first.", "err");
+      return;
+    }
+    formData.append("target", target);
+    setBusy(true);
+    fetch("/v1/send", {
+      method: "POST",
+      headers: { "Authorization": authHeader() },
+      body: formData
+    }).then(function (res) {
+      if (res.status === 401) {
+        throw new Error("UNAUTHORIZED");
+      }
+      if (!res.ok) {
+        return res.text().then(function (t) {
+          throw new Error(t || ("Server error (" + res.status + ")"));
+        });
+      }
+      showStatus("Sent " + label + " → " + target, "ok");
+    }).catch(function (err) {
+      if (err.message === "UNAUTHORIZED") {
+        showStatus("Check your token — unauthorized.", "err");
+      } else {
+        showStatus("Failed to send: " + err.message, "err");
+      }
+    }).finally(function () {
+      setBusy(false);
+    });
+  }
+
+  textEl.addEventListener("input", function () {
+    sendTextBtn.disabled = busy || !textEl.value.trim();
+  });
+  sendTextBtn.disabled = true;
+
+  sendTextBtn.addEventListener("click", function () {
+    var text = textEl.value;
+    if (!text.trim()) return;
+    var fd = new FormData();
+    fd.append("text", text);
+    doSend(fd, "text");
+  });
+
+  // ---- file handling ----
+  function pickFile(file) {
+    if (!file) return;
+    if (file.size > MAX_BYTES) {
+      showStatus("File too large (" + fmtSize(file.size) + "). Max is 20 MB.", "err");
+      clearFile();
+      return;
+    }
+    selectedFile = file;
+    fileNameEl.textContent = file.name || "file";
+    fileSizeEl.textContent = fmtSize(file.size);
+    fileInfo.className = "file-info show";
+    sendFileBtn.disabled = busy;
+  }
+
+  function clearFile() {
+    selectedFile = null;
+    fileInput.value = "";
+    fileInfo.className = "file-info";
+    sendFileBtn.disabled = true;
+  }
+
+  dropzone.addEventListener("click", function () {
+    fileInput.click();
+  });
+  fileInput.addEventListener("change", function () {
+    if (fileInput.files && fileInput.files[0]) {
+      pickFile(fileInput.files[0]);
+    }
+  });
+  fileClearBtn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    clearFile();
+  });
+
+  ["dragenter", "dragover"].forEach(function (evt) {
+    dropzone.addEventListener(evt, function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.className = "dropzone drag";
+    });
+  });
+  ["dragleave", "dragend"].forEach(function (evt) {
+    dropzone.addEventListener(evt, function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.className = "dropzone";
+    });
+  });
+  dropzone.addEventListener("drop", function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropzone.className = "dropzone";
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (files && files[0]) {
+      pickFile(files[0]);
+    }
+  });
+
+  sendFileBtn.addEventListener("click", function () {
+    if (!selectedFile) return;
+    var fd = new FormData();
+    fd.append("file", selectedFile, selectedFile.name);
+    var name = selectedFile.name || "file";
+    doSend(fd, name);
+    clearFile();
+  });
+
+  // ---- init ----
+  if (tokenEl.value) {
+    loadPeers();
+  } else {
+    var opt = document.createElement("option");
+    opt.textContent = "Enter token, then refresh";
+    opt.disabled = true;
+    targetEl.appendChild(opt);
+  }
+})();
+</script>
+
+</body>
+</html>

@@ -22,6 +22,12 @@ import (
 // Version is reported via /v1/status.
 const Version = "0.1.0"
 
+// sender delivers a payload to a peer. It is a package var so tests can
+// substitute a recorder in place of a real network send.
+var sender = func(ctx context.Context, token, addr string, p *payload.Payload) error {
+	return transport.NewClient(token).Send(ctx, addr, p)
+}
+
 // Daemon watches the local clipboard and pushes changes to the selected target,
 // and applies inbound content received from peers/phones.
 type Daemon struct {
@@ -99,7 +105,7 @@ func (d *Daemon) onLocalChange(ctx context.Context, it clipboard.Item) {
 		log.Printf("resolve target %q: %v", target, err)
 		return
 	}
-	if err := transport.NewClient(token).Send(ctx, addr, p); err != nil {
+	if err := sender(ctx, token, addr, p); err != nil {
 		log.Printf("send to %s: %v", target, err)
 		return
 	}
@@ -196,7 +202,7 @@ func (d *Daemon) Relay(target string, p *payload.Payload) error {
 	if err != nil {
 		return err
 	}
-	return transport.NewClient(token).Send(context.Background(), addr, p)
+	return sender(context.Background(), token, addr, p)
 }
 
 // saveFile writes a received file into the configured receive dir, de-colliding
