@@ -2,8 +2,6 @@
 package config
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -16,11 +14,11 @@ const DefaultPort = 8787
 // It is plain data; callers that mutate it concurrently must serialize access
 // (the daemon holds a mutex around it).
 type Config struct {
-	Token       string `json:"token"`        // shared secret across the fleet
-	Target      string `json:"target"`       // active target peer name ("" = none)
-	SyncEnabled bool   `json:"sync_enabled"` // watcher pushes when true
-	RecvDir     string `json:"recv_dir"`     // where received files are saved
-	Port        int    `json:"port"`         // HTTP listen port
+	Target          string `json:"target"`           // active target peer name ("" = none)
+	SyncEnabled     bool   `json:"sync_enabled"`     // watcher pushes when true
+	RecvDir         string `json:"recv_dir"`         // where received files are saved
+	Port            int    `json:"port"`             // HTTP listen port
+	DockerContainer string `json:"docker_container"` // container to docker-cp received files into ("" = disabled)
 
 	path string // where this config was loaded from
 }
@@ -48,7 +46,6 @@ func loadPath(p string) (*Config, error) {
 			return nil, err
 		}
 		// First run: seed defaults and persist.
-		c.Token = newToken()
 		c.RecvDir = defaultRecvDir()
 		c.Port = DefaultPort
 		c.SyncEnabled = true
@@ -91,12 +88,4 @@ func defaultRecvDir() string {
 		return "clippy-inbox"
 	}
 	return filepath.Join(home, "Downloads", "clippy")
-}
-
-func newToken() string {
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		return "changeme-insecure-token"
-	}
-	return hex.EncodeToString(b)
 }

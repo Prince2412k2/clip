@@ -40,8 +40,8 @@ type Clipboard interface {
 	Watch(ctx context.Context, out chan<- Item) error
 
 	// Set writes text or image content to the local system clipboard.
-	// Files are NOT written to the clipboard (the daemon saves them to disk),
-	// so Set may reject KindFile.
+	// Files are NOT written to the clipboard (the daemon puts their saved
+	// path on the clipboard as plain text instead), so Set may reject KindFile.
 	Set(item Item) error
 
 	// Read returns the current clipboard content (best-effort; for init/dedupe).

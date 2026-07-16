@@ -34,8 +34,9 @@ type tsStatus struct {
 	Peer map[string]*tsNode
 }
 
-// status runs `tailscale status --json` and parses it.
-func status() (*tsStatus, error) {
+// status runs `tailscale status --json` and parses it. It is a package var so
+// tests can substitute fixture output for the real shell-out.
+var status = func() (*tsStatus, error) {
 	out, err := exec.Command("tailscale", "status", "--json").Output()
 	if err != nil {
 		return nil, fmt.Errorf("tailnet: run tailscale status: %w", err)
@@ -71,27 +72,36 @@ func displayName(n *tsNode) string {
 	return dns
 }
 
-// Peers returns the other machines on the tailnet (self excluded), parsed from
-// `tailscale status --json`.
+// toPeer converts a status node to a Peer, returning ok=false when the node has
+// no tailnet IPv4 (e.g. funnel-ingress infra) and can never be a target. Self is
+// always reported online, since it's this very machine.
+func toPeer(n *tsNode, isSelf bool) (Peer, bool) {
+	if n == nil {
+		return Peer{}, false
+	}
+	ip := firstIPv4(n.TailscaleIPs)
+	if ip == "" {
+		return Peer{}, false
+	}
+	return Peer{Name: displayName(n), IP: ip, Online: n.Online || isSelf}, true
+}
+
+// Peers returns every machine on the tailnet, including this one, parsed from
+// `tailscale status --json`. Self is included so the webapp/CLI can target the
+// machine you're looking at.
 func Peers() ([]Peer, error) {
 	st, err := status()
 	if err != nil {
 		return nil, err
 	}
-	peers := make([]Peer, 0, len(st.Peer))
+	peers := make([]Peer, 0, len(st.Peer)+1)
+	if p, ok := toPeer(st.Self, true); ok {
+		peers = append(peers, p)
+	}
 	for _, n := range st.Peer {
-		if n == nil {
-			continue
+		if p, ok := toPeer(n, false); ok {
+			peers = append(peers, p)
 		}
-		ip := firstIPv4(n.TailscaleIPs)
-		if ip == "" {
-			continue // no tailnet IPv4 (e.g. funnel-ingress infra) -> never a target
-		}
-		peers = append(peers, Peer{
-			Name:   displayName(n),
-			IP:     ip,
-			Online: n.Online,
-		})
 	}
 	sort.Slice(peers, func(i, j int) bool { return peers[i].Name < peers[j].Name })
 	return peers, nil
@@ -125,7 +135,13 @@ func Resolve(name string, port int) (string, error) {
 	}
 
 	lname := strings.ToLower(name)
+	// Match self as well as peers, so the machine you're on is a valid target.
+	nodes := make([]*tsNode, 0, len(st.Peer)+1)
+	nodes = append(nodes, st.Self)
 	for _, n := range st.Peer {
+		nodes = append(nodes, n)
+	}
+	for _, n := range nodes {
 		if n == nil {
 			continue
 		}

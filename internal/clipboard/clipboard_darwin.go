@@ -107,7 +107,7 @@ func (darwinClipboard) Set(item Item) error {
 		return nil
 
 	case KindFile:
-		return errors.New("clipboard: Set does not support KindFile")
+		return errors.New("clipboard: Set does not support KindFile (the daemon puts its saved path on the clipboard as plain text instead)")
 
 	default:
 		return fmt.Errorf("clipboard: unsupported item kind %q", item.Kind)

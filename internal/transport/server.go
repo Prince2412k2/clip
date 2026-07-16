@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"io"
 	"log"
@@ -18,7 +17,8 @@ import (
 
 // Server exposes the daemon over HTTP: the /v1 API for peers, the control
 // endpoints for the local CLI, and the webapp UI. It binds to the tailnet
-// interface (FR-015) and authenticates with the shared token (FR-009).
+// interface (FR-015); Tailscale (encrypted, ACL'd) is the trust boundary, so
+// there is no application-level auth.
 type Server struct {
 	cfg *config.Config
 	h   Handler
@@ -30,22 +30,29 @@ func NewServer(cfg *config.Config, h Handler, web http.Handler) *Server {
 	return &Server{cfg: cfg, h: h, web: web}
 }
 
-// Run binds to the tailnet IP on cfg.Port and serves until ctx is cancelled.
-func (s *Server) Run(ctx context.Context) error {
+// routes builds the request handler. No auth middleware wraps the endpoints:
+// the daemon binds to the tailnet only, and Tailscale is the trust boundary.
+func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 
-	mux.Handle(PathClip, s.auth(http.HandlerFunc(s.handleClip)))
-	mux.Handle(PathStatus, s.auth(http.HandlerFunc(s.handleStatus)))
-	mux.Handle(PathTarget, s.auth(http.HandlerFunc(s.handleTarget)))
-	mux.Handle(PathSync, s.auth(http.HandlerFunc(s.handleSync)))
-	mux.Handle(PathPeers, s.auth(http.HandlerFunc(s.handlePeers)))
-	mux.Handle(PathSend, s.auth(http.HandlerFunc(s.handleSend)))
+	mux.HandleFunc(PathClip, s.handleClip)
+	mux.HandleFunc(PathStatus, s.handleStatus)
+	mux.HandleFunc(PathTarget, s.handleTarget)
+	mux.HandleFunc(PathSync, s.handleSync)
+	mux.HandleFunc(PathPeers, s.handlePeers)
+	mux.HandleFunc(PathDocker, s.handleDocker)
+	mux.HandleFunc(PathSend, s.handleSend)
 	mux.Handle(PathRoot, s.web)
 
+	return logRequests(mux)
+}
+
+// Run binds to the tailnet IP on cfg.Port and serves until ctx is cancelled.
+func (s *Server) Run(ctx context.Context) error {
 	addr := tailnet.ListenAddr(s.cfg.Port)
 	srv := &http.Server{
 		Addr:    addr,
-		Handler: logRequests(mux),
+		Handler: s.routes(),
 	}
 
 	errCh := make(chan error, 1)
@@ -88,19 +95,6 @@ func (sw *statusWriter) WriteHeader(status int) {
 	sw.ResponseWriter.WriteHeader(status)
 }
 
-// auth wraps h with bearer-token authentication (FR-009).
-func (s *Server) auth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hdr := r.Header.Get(HdrAuth)
-		want := BearerPfx + s.cfg.Token
-		if !strings.HasPrefix(hdr, BearerPfx) || subtle.ConstantTimeCompare([]byte(hdr), []byte(want)) != 1 {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 func (s *Server) handleClip(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -119,6 +113,10 @@ func (s *Server) handleClip(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(body) > payload.MaxSize {
 		http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	if sha != "" && sha != payload.Hash(body) {
+		http.Error(w, "sha256 mismatch", http.StatusBadRequest)
 		return
 	}
 
@@ -188,16 +186,50 @@ func (s *Server) handlePeers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, peers)
 }
 
+func (s *Server) handleDocker(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		containers, err := s.h.Containers()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if containers == nil {
+			containers = []ContainerDTO{}
+		}
+		writeJSON(w, http.StatusOK, containers)
+	case http.MethodPost:
+		var req DockerReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if err := s.h.SetDocker(req.Container); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	// Bound the total request body so a large upload can't exhaust disk/memory
+	// before the per-payload cap is checked. ParseMultipartForm's argument only
+	// caps in-memory buffering; the rest would otherwise spill to disk unbounded.
+	r.Body = http.MaxBytesReader(w, r.Body, payload.MaxSize+(1<<20))
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		http.Error(w, "bad multipart form", http.StatusBadRequest)
 		return
 	}
+	// Remove any temp files ParseMultipartForm spilled to disk.
+	defer r.MultipartForm.RemoveAll()
 
 	target := r.FormValue("target")
 	if target == "" {

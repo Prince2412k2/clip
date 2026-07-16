@@ -13,13 +13,12 @@ import (
 
 // Client sends payloads to a peer daemon's /v1/clip endpoint.
 type Client struct {
-	token string
-	hc    *http.Client
+	hc *http.Client
 }
 
-// NewClient returns a Client authenticating with the given shared token.
-func NewClient(token string) *Client {
-	return &Client{token: token, hc: &http.Client{Timeout: 30 * time.Second}}
+// NewClient returns a Client for talking to peer daemons over the tailnet.
+func NewClient() *Client {
+	return &Client{hc: &http.Client{Timeout: 30 * time.Second}}
 }
 
 // Send POSTs a payload to a peer at addr (host:port).
@@ -29,7 +28,6 @@ func (c *Client) Send(ctx context.Context, addr string, p *payload.Payload) erro
 	if err != nil {
 		return err
 	}
-	req.Header.Set(HdrAuth, BearerPfx+c.token)
 	req.Header.Set(HdrKind, string(p.Kind))
 	req.Header.Set(HdrName, p.Name)
 	req.Header.Set(HdrMime, p.Mime)

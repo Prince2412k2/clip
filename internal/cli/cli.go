@@ -29,9 +29,8 @@ func Run(args []string) error {
 		return fmt.Errorf("cli: load config: %w", err)
 	}
 	c := &client{
-		base:  "http://" + tailnet.ListenAddr(cfg.Port),
-		token: cfg.Token,
-		hc:    &http.Client{Timeout: httpTimeout},
+		base: "http://" + tailnet.ListenAddr(cfg.Port),
+		hc:   &http.Client{Timeout: httpTimeout},
 	}
 
 	switch args[0] {
@@ -39,9 +38,17 @@ func Run(args []string) error {
 		return c.peers()
 	case "target":
 		if len(args) < 2 || args[1] == "" {
-			return fmt.Errorf("cli: target requires a name, e.g. `clippy target mymac`")
+			return c.pickTargetInteractive()
 		}
 		return c.target(args[1])
+	case "docker":
+		if len(args) < 2 || args[1] == "" {
+			return c.pickDockerInteractive()
+		}
+		if args[1] == "off" {
+			return c.docker("")
+		}
+		return c.docker(args[1])
 	case "on":
 		return c.sync(true)
 	case "off":
@@ -55,14 +62,12 @@ func Run(args []string) error {
 
 // client is a thin HTTP wrapper for talking to the local daemon.
 type client struct {
-	base  string
-	token string
-	hc    *http.Client
+	base string
+	hc   *http.Client
 }
 
 // do sends a request to path and decodes a 200 JSON response into out (if
-// out is non-nil). It translates connection and auth failures into
-// friendly errors.
+// out is non-nil). It translates connection failures into friendly errors.
 func (c *client) do(method, path string, body any, out any) error {
 	var reader io.Reader
 	if body != nil {
@@ -77,7 +82,6 @@ func (c *client) do(method, path string, body any, out any) error {
 	if err != nil {
 		return fmt.Errorf("cli: build request: %w", err)
 	}
-	req.Header.Set(transport.HdrAuth, transport.BearerPfx+c.token)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -89,9 +93,6 @@ func (c *client) do(method, path string, body any, out any) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("cli: unauthorized — token mismatch")
-	}
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("cli: daemon returned %s: %s", resp.Status, bytes.TrimSpace(msg))
@@ -126,6 +127,32 @@ func (c *client) peers() error {
 	return nil
 }
 
+// pickTargetInteractive fetches peers, lets the user arrow-key through them
+// inline, then sets the chosen one as the active target.
+func (c *client) pickTargetInteractive() error {
+	var peers []transport.PeerDTO
+	if err := c.do(http.MethodGet, transport.PathPeers, nil, &peers); err != nil {
+		return err
+	}
+	if len(peers) == 0 {
+		fmt.Println("(no peers found)")
+		return nil
+	}
+
+	var st transport.StatusDTO
+	_ = c.do(http.MethodGet, transport.PathStatus, nil, &st) // current target is a nice-to-have; ignore errors
+
+	name, err := pickTarget(peers, st.Target)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		fmt.Println("cancelled")
+		return nil
+	}
+	return c.target(name)
+}
+
 // target sets the active target peer.
 func (c *client) target(name string) error {
 	req := transport.TargetReq{Target: name}
@@ -133,6 +160,40 @@ func (c *client) target(name string) error {
 		return err
 	}
 	fmt.Printf("target set to %q\n", name)
+	return nil
+}
+
+func (c *client) pickDockerInteractive() error {
+	var containers []transport.ContainerDTO
+	if err := c.do(http.MethodGet, transport.PathDocker, nil, &containers); err != nil {
+		return err
+	}
+	if len(containers) == 0 {
+		fmt.Println("(no Docker containers found)")
+		return nil
+	}
+	var st transport.StatusDTO
+	_ = c.do(http.MethodGet, transport.PathStatus, nil, &st)
+	name, err := pickContainer(containers, st.Docker)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		fmt.Println("cancelled")
+		return nil
+	}
+	return c.docker(name)
+}
+
+func (c *client) docker(name string) error {
+	if err := c.do(http.MethodPost, transport.PathDocker, transport.DockerReq{Container: name}, nil); err != nil {
+		return err
+	}
+	if name == "" {
+		fmt.Println("Docker integration disabled")
+		return nil
+	}
+	fmt.Printf("Docker container set to %q\n", name)
 	return nil
 }
 
@@ -167,6 +228,11 @@ func (c *client) status() error {
 	fmt.Printf("version:    %s\n", st.Version)
 	fmt.Printf("sync:       %s\n", syncState)
 	fmt.Printf("target:     %s\n", target)
+	docker := st.Docker
+	if docker == "" {
+		docker = "(none)"
+	}
+	fmt.Printf("docker:     %s\n", docker)
 	fmt.Printf("tailscale:  %s\n", st.TailscaleIP)
 	fmt.Printf("daemon:     %s\n", c.base)
 	return nil

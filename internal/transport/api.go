@@ -15,18 +15,17 @@ const (
 	PathTarget = "/v1/target" // POST: set active target
 	PathSync   = "/v1/sync"   // POST: enable/disable sending
 	PathPeers  = "/v1/peers"  // GET:  list tailnet peers
+	PathDocker = "/v1/docker" // GET: list containers; POST: select one
 	PathSend   = "/v1/send"   // POST: multipart relay from webapp/phone
 	PathRoot   = "/"          // GET:  webapp UI + static assets
 )
 
-// Header names and the bearer prefix.
+// Header names for payload metadata.
 const (
-	HdrAuth   = "Authorization"
-	HdrKind   = "X-Clippy-Kind"
-	HdrName   = "X-Clippy-Name"
-	HdrMime   = "X-Clippy-Mime"
-	HdrSha    = "X-Clippy-Sha256"
-	BearerPfx = "Bearer "
+	HdrKind = "X-Clippy-Kind"
+	HdrName = "X-Clippy-Name"
+	HdrMime = "X-Clippy-Mime"
+	HdrSha  = "X-Clippy-Sha256"
 )
 
 // StatusDTO is returned by GET /v1/status.
@@ -34,7 +33,13 @@ type StatusDTO struct {
 	Version     string `json:"version"`
 	SyncEnabled bool   `json:"sync_enabled"`
 	Target      string `json:"target"`
+	Docker      string `json:"docker_container"`
 	TailscaleIP string `json:"tailscale_ip"`
+}
+
+type ContainerDTO struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
 }
 
 // PeerDTO is one entry returned by GET /v1/peers.
@@ -54,6 +59,10 @@ type SyncReq struct {
 	Enabled bool `json:"enabled"`
 }
 
+type DockerReq struct {
+	Container string `json:"container"`
+}
+
 // Handler is implemented by the daemon; the HTTP server dispatches to it.
 type Handler interface {
 	// Receive handles inbound content: sets the clipboard (text/image) or saves
@@ -65,6 +74,8 @@ type Handler interface {
 	SetTarget(target string) error
 	// SetSync toggles sending and persists it.
 	SetSync(enabled bool) error
+	SetDocker(container string) error
+	Containers() ([]ContainerDTO, error)
 	// Peers lists the machines on the tailnet.
 	Peers() ([]PeerDTO, error)
 	// Relay forwards a payload (built from a webapp/phone upload) to target.
